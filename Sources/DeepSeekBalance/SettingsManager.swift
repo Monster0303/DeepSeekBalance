@@ -6,7 +6,7 @@ final class SettingsManager {
 
     private var configDir: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("DeepseekBalance", isDirectory: true)
+            .appendingPathComponent("DeepSeekBalance", isDirectory: true)
     }
 
     private var configFile: URL { configDir.appendingPathComponent("config") }
@@ -20,7 +20,7 @@ final class SettingsManager {
             try encoded.write(to: configFile, options: .atomic)
             return true
         } catch {
-            NSLog("[DeepseekBalance] 保存 API Key 失败: \(error)")
+            NSLog("[DeepSeekBalance] 保存 API Key 失败: \(error)")
             return false
         }
     }

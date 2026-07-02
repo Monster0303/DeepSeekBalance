@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "DeepseekBalance",
+    name: "DeepSeekBalance",
     platforms: [.macOS(.v12)],
     products: [
-        .executable(name: "DeepseekBalance", targets: ["DeepseekBalance"])
+        .executable(name: "DeepSeekBalance", targets: ["DeepSeekBalance"])
     ],
     dependencies: [],
     targets: [
         .executableTarget(
-            name: "DeepseekBalance",
+            name: "DeepSeekBalance",
             dependencies: []
         )
     ]

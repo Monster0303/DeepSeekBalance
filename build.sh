@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-NAME="DeepseekBalance"
-DISPLAY_NAME="DeepSeek Balance"
+NAME="DeepSeekBalance"
+DISPLAY_NAME="DeepSeekBalance"
 VERSION=$(cat "$DIR/VERSION" | tr -d ' \n')
 BUNDLE="$DIR/build/$NAME.app"
 DMG="$DIR/build/$NAME-$VERSION.dmg"
@@ -10,7 +10,7 @@ DMG="$DIR/build/$NAME-$VERSION.dmg"
 echo "🔨 构建 $DISPLAY_NAME v$VERSION ..."
 mkdir -p "$DIR/.build/debug"
 
-swiftc -o "$DIR/.build/debug/$NAME" "$DIR/Sources/DeepseekBalance/"*.swift \
+swiftc -o "$DIR/.build/debug/$NAME" "$DIR/Sources/DeepSeekBalance/"*.swift \
   -sdk /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk \
   -target x86_64-apple-macosx12.0 \
   -framework AppKit -framework SwiftUI -framework Security \
