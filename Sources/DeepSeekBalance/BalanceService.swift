@@ -5,13 +5,21 @@ import Combine
 final class BalanceService: ObservableObject {
     static let shared = BalanceService()
 
-    @Published var balanceModel: BalanceDisplayModel?
+    @Published private(set) var accountBalances: [AccountBalanceState] = []
     @Published var isLoading = false
-    @Published var errorMessage: String?
     @Published var lastUpdated: Date?
     @Published var refreshSuccessMessage: String?  // 刷新成功提示
 
+    var orderedAccountBalances: [AccountBalanceState] {
+        guard SettingsManager.secondaryAccountFirst, accountBalances.count == 2 else {
+            return accountBalances
+        }
+        return [accountBalances[1], accountBalances[0]]
+    }
+
     private var timer: Timer?
+    private var isFetching = false
+    private var pendingRefresh = false
     private var refreshInterval: TimeInterval {
         let saved = SettingsManager.refreshInterval
         return saved > 0 ? saved : 300
@@ -21,54 +29,152 @@ final class BalanceService: ObservableObject {
         stopAutoRefresh()
         refreshNow()
         timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in await self?.fetchBalance() }
+            Task { @MainActor [weak self] in await self?.fetchBalances() }
         }
     }
 
     func stopAutoRefresh() { timer?.invalidate(); timer = nil }
-    func refreshNow() { Task { await fetchBalance() } }
-    func restartAutoRefresh() { stopAutoRefresh(); startAutoRefresh() }
+    func refreshNow() {
+        guard !isFetching else {
+            pendingRefresh = true
+            return
+        }
+        Task { await fetchBalances() }
+    }
+    func restartAutoRefresh() {
+        applyAccountPreferences()
+        stopAutoRefresh()
+        startAutoRefresh()
+    }
 
-    private func fetchBalance() async {
-        guard let apiKey = SettingsManager.shared.loadAPIKey() else {
-            errorMessage = "请先设置 API Key"
+    private func applyAccountPreferences() {
+        guard !accountBalances.isEmpty else { return }
+        let names = SettingsManager.accountNames
+        let colors = SettingsManager.accountNameColors
+        accountBalances = accountBalances.map { account in
+            AccountBalanceState(
+                id: account.id,
+                name: names.indices.contains(account.id) ? names[account.id] : account.label,
+                nameColor: colors.indices.contains(account.id) ? colors[account.id] : AccountNameColor.defaults[account.id % 2],
+                model: account.model,
+                errorMessage: account.errorMessage,
+                isLoading: account.isLoading,
+                lastUpdated: account.lastUpdated
+            )
+        }
+    }
+
+    private func fetchBalances() async {
+        guard !isFetching else { return }
+
+        let apiKeys = SettingsManager.shared.loadAPIKeys()
+        guard !apiKeys.isEmpty else {
+            accountBalances = []
+            isLoading = false
+            lastUpdated = nil
             return
         }
 
+        isFetching = true
         isLoading = true
-        errorMessage = nil
+        refreshSuccessMessage = nil
 
         let baseURL = SettingsManager.apiBaseURL
-        let endpoints = ["/user/balance", "/v1/dashboard/billing/available", "/v1/user/balance"]
-        var lastError: String?
+        let initialAccountNames = SettingsManager.accountNames
+        let initialAccountColors = SettingsManager.accountNameColors
+        let previousBalances = Dictionary(uniqueKeysWithValues: accountBalances.map { ($0.id, $0) })
 
-        for endpoint in endpoints {
-            if let result = try? await requestBalance(baseURL: baseURL, endpoint: endpoint, apiKey: apiKey) {
-                let granted = result.totalGranted ?? (SettingsManager.totalBudget > 0 ? SettingsManager.totalBudget : nil)
-                balanceModel = BalanceDisplayModel(
-                    balance: result.balance,
-                    totalUsed: result.totalUsed,
-                    totalGranted: granted
-                )
-                isLoading = false
-                lastUpdated = Date()
-                errorMessage = nil
-                // 刷新成功提示
-                refreshSuccessMessage = "✓ 刷新成功"
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                    self?.refreshSuccessMessage = nil
+        accountBalances = apiKeys.enumerated().map { index, _ in
+            let previous = previousBalances[index]
+            return AccountBalanceState(
+                id: index,
+                name: initialAccountNames.indices.contains(index) ? initialAccountNames[index] : "账号 \(index + 1)",
+                nameColor: initialAccountColors.indices.contains(index) ? initialAccountColors[index] : AccountNameColor.defaults[index % 2],
+                model: previous?.model,
+                errorMessage: nil,
+                isLoading: true,
+                lastUpdated: previous?.lastUpdated
+            )
+        }
+
+        let results = await withTaskGroup(of: (Int, BalanceDisplayModel?, String?).self) { group in
+            for (index, apiKey) in apiKeys.enumerated() {
+                group.addTask {
+                    let result = await Self.fetchBalance(apiKey: apiKey, baseURL: baseURL)
+                    return (index, result.model, result.errorMessage)
                 }
-                return
-            } else {
-                lastError = "获取余额失败"
             }
+
+            var collected: [(Int, BalanceDisplayModel?, String?)] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected.sorted { $0.0 < $1.0 }
+        }
+
+        let now = Date()
+        let currentAccountNames = SettingsManager.accountNames
+        let currentAccountColors = SettingsManager.accountNameColors
+        var anySuccess = false
+        accountBalances = results.map { index, model, error in
+            let previous = previousBalances[index]
+            let currentModel = model ?? previous?.model
+            if model != nil { anySuccess = true }
+            return AccountBalanceState(
+                id: index,
+                name: currentAccountNames.indices.contains(index) ? currentAccountNames[index] : "账号 \(index + 1)",
+                nameColor: currentAccountColors.indices.contains(index) ? currentAccountColors[index] : AccountNameColor.defaults[index % 2],
+                model: currentModel,
+                errorMessage: model == nil ? (error ?? "获取余额失败") : nil,
+                isLoading: false,
+                lastUpdated: model == nil ? previous?.lastUpdated : now
+            )
         }
 
         isLoading = false
-        errorMessage = lastError
+        isFetching = false
+        lastUpdated = accountBalances.compactMap(\.lastUpdated).max()
+
+        if anySuccess {
+            refreshSuccessMessage = "✓ 已刷新"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.refreshSuccessMessage = nil
+            }
+        }
+
+        if pendingRefresh {
+            pendingRefresh = false
+            refreshNow()
+        }
     }
 
-    private func requestBalance(baseURL: String, endpoint: String, apiKey: String) async throws -> BalanceDisplayModel? {
+    private nonisolated static func fetchBalance(
+        apiKey: String,
+        baseURL: String
+    ) async -> (model: BalanceDisplayModel?, errorMessage: String?) {
+        let endpoints = ["/user/balance", "/v1/dashboard/billing/available", "/v1/user/balance"]
+
+        for endpoint in endpoints {
+            if let model = try? await requestBalance(baseURL: baseURL, endpoint: endpoint, apiKey: apiKey) {
+                let granted = model.totalGranted ?? (SettingsManager.totalBudget > 0 ? SettingsManager.totalBudget : nil)
+                return (
+                    BalanceDisplayModel(
+                        balance: model.balance,
+                        totalUsed: model.totalUsed,
+                        totalGranted: granted
+                    ),
+                    nil
+                )
+            }
+        }
+        return (nil, "获取余额失败")
+    }
+
+    private nonisolated static func requestBalance(
+        baseURL: String,
+        endpoint: String,
+        apiKey: String
+    ) async throws -> BalanceDisplayModel? {
         guard let url = URL(string: baseURL + endpoint) else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "GET"

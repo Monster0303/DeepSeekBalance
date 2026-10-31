@@ -89,21 +89,11 @@ struct BalancePopoverView: View {
     // MARK: - 内容卡片容器
 
     private var contentSection: some View {
-        VStack(spacing: 6) {
-            if !SettingsManager.shared.hasAPIKey {
-                noKeyView
-            } else if balanceService.isLoading && balanceService.balanceModel == nil {
-                loadingView
-            } else if let err = balanceService.errorMessage, balanceService.balanceModel == nil {
-                errorView(err)
-            } else if let model = balanceService.balanceModel {
-                balanceCardView(model)
-            } else {
-                waitingView
-            }
+        VStack(spacing: 0) {
+            accountContent
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .padding(.horizontal, 16)
         .background(
             ZStack {
@@ -127,6 +117,92 @@ struct BalancePopoverView: View {
     }
 
     // MARK: - 各种状态视图
+
+    @ViewBuilder
+    private var accountContent: some View {
+        if !SettingsManager.shared.hasAPIKey {
+            noKeyView
+        } else if balanceService.accountBalances.isEmpty {
+            loadingView
+        } else {
+            ForEach(Array(balanceService.orderedAccountBalances.enumerated()), id: \.element.id) { item in
+                if item.offset > 0 {
+                    Divider()
+                        .opacity(0.45)
+                        .padding(.vertical, 2)
+                }
+                accountBalanceRow(item.element)
+            }
+        }
+    }
+
+    private func accountBalanceRow(_ account: AccountBalanceState) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(account.model == nil ? (account.errorMessage == nil ? Color.secondary : Color.orange) : Color.green)
+                    .frame(width: 6, height: 6)
+
+                Text(account.label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(accountNameColor(account.nameColor))
+
+                if account.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.4)
+                        .frame(width: 10, height: 10)
+                }
+
+                Spacer()
+
+                Text(account.model?.balanceText ?? "--")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .animation(.easeInOut(duration: 0.3), value: account.model?.balanceText)
+            }
+
+            if let model = account.model {
+                HStack(spacing: 10) {
+                    if let granted = model.totalGranted {
+                        Text("总额 ¥\(short(granted))")
+                    }
+                    if let used = model.totalUsed {
+                        Text("已用 ¥\(short(used))")
+                    }
+                    if model.totalGranted != nil {
+                        Text("\(Int(model.usagePercent * 100))%")
+                    }
+                }
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundColor(.secondary)
+
+                if let granted = model.totalGranted, granted > 0 {
+                    ProgressView(value: min(max(model.usagePercent, 0), 1))
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+                        .frame(height: 3)
+                }
+            } else if account.isLoading {
+                Text("正在获取余额...")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            } else {
+                Text(account.errorMessage ?? "暂无余额数据")
+                    .font(.system(size: 9))
+                    .foregroundColor(.orange)
+                    .lineLimit(1)
+            }
+
+            if let error = account.errorMessage, account.model != nil {
+                Text("刷新失败，显示上次余额：\(error)")
+                    .font(.system(size: 8))
+                    .foregroundColor(.orange)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 7)
+    }
 
     private var noKeyView: some View {
         VStack(spacing: 8) {
@@ -158,147 +234,11 @@ struct BalancePopoverView: View {
         .frame(height: 80)
     }
 
-    private func errorView(_ msg: String) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 18))
-                .foregroundColor(.orange)
-                .background(
-                    Circle().fill(Color.orange.opacity(0.1)).frame(width: 36, height: 36)
-                )
-            Text("获取失败")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.secondary)
-            Text(msg)
-                .font(.system(size: 8))
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        }
-        .frame(height: 80)
-    }
-
     private var waitingView: some View {
         Text("等待首次刷新...")
             .font(.system(size: 10))
             .foregroundColor(.secondary)
             .frame(height: 80)
-    }
-
-    // MARK: - 余额主卡片
-
-    private func balanceCardView(_ model: BalanceDisplayModel) -> some View {
-        VStack(spacing: 10) {
-            // 余额主数字
-            VStack(spacing: 2) {
-                Text("可用余额")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .tracking(1)
-
-                Text(model.balanceText)
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                    .animation(.easeInOut(duration: 0.3), value: model.balanceText)
-            }
-
-            // 分隔点
-            Capsule()
-                .fill(Color.gray.opacity(0.1))
-                .frame(width: 40, height: 2)
-
-            // 统计小卡片行
-            HStack(spacing: 10) {
-                if let used = model.totalUsed {
-                    statCard(label: "已使用", value: "¥\(short(used))", color: .orange)
-                }
-                if let granted = model.totalGranted {
-                    statCard(label: "总额度", value: "¥\(short(granted))", color: .blue)
-                }
-                if model.totalGranted != nil {
-                    statCard(label: "已用比例", value: "\(Int(model.usagePercent * 100))%", color: .purple)
-                }
-            }
-
-            // 进度条
-            if let granted = model.totalGranted, granted > 0 {
-                VStack(spacing: 4) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            // 底层轨道
-                            Capsule()
-                                .fill(Color.gray.opacity(0.08))
-                                .frame(height: 6)
-
-                            // 渐变填充
-                            Capsule()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.blue, Color(red: 0, green: 0.7, blue: 0.5)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .frame(
-                                    width: geo.size.width * min(max(model.usagePercent, 0), 1),
-                                    height: 6
-                                )
-                                .animation(.easeInOut(duration: 0.5), value: model.usagePercent)
-
-                            // 光泽高光
-                            Capsule()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [.white.opacity(0.4), .clear],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                                .frame(
-                                    width: geo.size.width * min(max(model.usagePercent, 0), 1),
-                                    height: 3
-                                )
-                                .blendMode(.overlay)
-                        }
-                    }
-                    .frame(height: 6)
-
-                    // 进度底部标注
-                    HStack {
-                        Text("0%")
-                            .font(.system(size: 8))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("100%")
-                            .font(.system(size: 8))
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - 统计小卡片
-
-    private func statCard(label: String, value: String, color: Color) -> some View {
-        VStack(spacing: 3) {
-            Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundColor(.primary)
-            Text(label)
-                .font(.system(size: 8, weight: .medium))
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(color.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(color.opacity(0.1), lineWidth: 0.5)
-        )
     }
 
     // MARK: - 工具栏
@@ -416,5 +356,15 @@ struct BalancePopoverView: View {
             : n >= 1
                 ? String(format: "%.2f", n)
                 : String(format: "%.4f", n)
+    }
+
+    private func accountNameColor(_ color: AccountNameColor) -> Color {
+        Color(
+            .sRGB,
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
+            opacity: color.alpha
+        )
     }
 }

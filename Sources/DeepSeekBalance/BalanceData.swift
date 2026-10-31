@@ -67,3 +67,29 @@ struct BalanceDisplayModel {
         String(format: "¥%.2f", balance)
     }
 }
+
+struct AccountNameColor: Codable, Equatable {
+    let red: Double
+    let green: Double
+    let blue: Double
+    let alpha: Double
+
+    static let defaults = [
+        AccountNameColor(red: 0.00, green: 0.48, blue: 1.00, alpha: 1.00),
+        AccountNameColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1.00)
+    ]
+}
+
+struct AccountBalanceState: Identifiable {
+    let id: Int
+    let name: String
+    let nameColor: AccountNameColor
+    var model: BalanceDisplayModel?
+    var errorMessage: String?
+    var isLoading: Bool
+    var lastUpdated: Date?
+
+    var label: String {
+        name.isEmpty ? "账号 \(id + 1)" : name
+    }
+}

@@ -49,7 +49,13 @@ struct SettingsCard<Content: View>: View {
 // MARK: - 设置视图
 
 struct SettingsView: View {
-    @State private var apiKey: String = ""
+    @State private var primaryAPIKey: String = ""
+    @State private var secondaryAPIKey: String = ""
+    @State private var primaryAccountName: String = "账号 1"
+    @State private var secondaryAccountName: String = "账号 2"
+    @State private var primaryAccountColor: Color = Color(.sRGB, red: 0.00, green: 0.48, blue: 1.00, opacity: 1.00)
+    @State private var secondaryAccountColor: Color = Color(.sRGB, red: 0.20, green: 0.78, blue: 0.35, opacity: 1.00)
+    @State private var secondaryAccountFirst = false
     @State private var refreshInterval: Double = 300
     @State private var apiBaseURL: String = "https://api.deepseek.com"
     @State private var totalBudget: String = ""
@@ -57,8 +63,8 @@ struct SettingsView: View {
     @State private var panelWidth: Double = 200
     @State private var panelHeight: Double = 130
     @State private var saveSuccess = false
-    @State private var copiedAlert = false
-    @State private var pastedAlert = false
+    @State private var copiedAccount: Int?
+    @State private var pastedAccount: Int?
 
     private let intervalOptions: [(label: String, value: Double)] = [
         ("30秒", 30), ("1分", 60), ("2分", 120),
@@ -72,7 +78,7 @@ struct SettingsView: View {
                 titleSection
 
                 // ═══ 各设置卡片 ═══
-                SettingsCard(title: "API Key", systemImage: "key.fill", color: .orange) {
+                SettingsCard(title: "API Keys", systemImage: "key.fill", color: .orange) {
                     apiKeySection
                 }
 
@@ -131,48 +137,128 @@ struct SettingsView: View {
     // MARK: - API Key
 
     private var apiKeySection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 4) {
-                TextField("sk-...", text: $apiKey)
+        VStack(alignment: .leading, spacing: 10) {
+            apiKeyRow(
+                title: "账号 1",
+                name: $primaryAccountName,
+                nameColor: $primaryAccountColor,
+                text: $primaryAPIKey,
+                account: 0
+            )
+
+            Divider()
+                .opacity(0.4)
+
+            apiKeyRow(
+                title: "账号 2",
+                name: $secondaryAccountName,
+                nameColor: $secondaryAccountColor,
+                text: $secondaryAPIKey,
+                account: 1
+            )
+
+            Divider()
+                .opacity(0.4)
+
+            HStack(spacing: 8) {
+                Text("显示顺序")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 54, alignment: .leading)
+
+                Picker("", selection: $secondaryAccountFirst) {
+                    Text("账号 1 在前").tag(false)
+                    Text("账号 2 在前").tag(true)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+
+            Text("账户名留空时使用默认名称，最多显示 12 个字符；账号 2 可留空。颜色仅作用于账户名称。")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func apiKeyRow(
+        title: String,
+        name: Binding<String>,
+        nameColor: Binding<Color>,
+        text: Binding<String>,
+        account: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 42, alignment: .leading)
+
+                TextField("自定义账户名", text: name)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .padding(9)
+                    .background(Color.gray.opacity(0.06))
+                    .cornerRadius(8)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.12), lineWidth: 0.5))
+
+                ColorPicker("", selection: nameColor, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 30)
+                    .help("选择\(title)的名称颜色")
+            }
+
+            HStack(spacing: 6) {
+                Text("API Key")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 42, alignment: .leading)
+
+                TextField("sk-...", text: text)
                     .textFieldStyle(.plain)
                     .font(.system(size: 11, design: .monospaced))
-                    .padding(10)
+                    .padding(9)
                     .background(Color.gray.opacity(0.06))
                     .cornerRadius(8)
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.12), lineWidth: 0.5))
 
                 HStack(spacing: 2) {
-                    Button(action: pasteFromClipboard) {
+                    Button(action: {
+                        pasteFromClipboard(into: text, account: account)
+                    }) {
                         Image(systemName: "clipboard")
                             .font(.system(size: 11))
                             .frame(width: 24, height: 24)
-                            .background(pastedAlert ? Color.green.opacity(0.1) : Color.clear)
+                            .background(pastedAccount == account ? Color.green.opacity(0.1) : Color.clear)
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(pastedAlert ? .green : .secondary)
+                    .foregroundColor(pastedAccount == account ? .green : .secondary)
+                    .help("从剪贴板粘贴到\(title)")
 
-                    Button(action: copyToClipboard) {
+                    Button(action: {
+                        copyToClipboard(text.wrappedValue, account: account)
+                    }) {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 11))
                             .frame(width: 24, height: 24)
-                            .background(copiedAlert ? Color.green.opacity(0.1) : Color.clear)
+                            .background(copiedAccount == account ? Color.green.opacity(0.1) : Color.clear)
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
-                    .foregroundColor(copiedAlert ? .green : .secondary)
+                    .foregroundColor(copiedAccount == account ? .green : .secondary)
+                    .help("复制\(title)的 API Key")
                 }
             }
 
-            if copiedAlert {
-                Label("已复制到剪贴板!", systemImage: "checkmark")
-                    .font(.system(size: 9)).foregroundColor(.green)
-            } else if pastedAlert {
-                Label("已粘贴!", systemImage: "checkmark")
-                    .font(.system(size: 9)).foregroundColor(.green)
-            } else {
-                Text("支持 Cmd+C/V · 亦可用粘贴/复制按钮")
-                    .font(.system(size: 9)).foregroundColor(.secondary)
+            if copiedAccount == account {
+                Label("已复制到剪贴板", systemImage: "checkmark")
+                    .font(.system(size: 9))
+                    .foregroundColor(.green)
+            } else if pastedAccount == account {
+                Label("已粘贴", systemImage: "checkmark")
+                    .font(.system(size: 9))
+                    .foregroundColor(.green)
             }
         }
     }
@@ -290,23 +376,36 @@ struct SettingsView: View {
 
     // MARK: - 功能方法
 
-    private func copyToClipboard() {
+    private func copyToClipboard(_ apiKey: String, account: Int) {
         guard !apiKey.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(apiKey, forType: .string)
-        withAnimation { copiedAlert = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { copiedAlert = false } }
+        withAnimation { copiedAccount = account }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if copiedAccount == account { withAnimation { copiedAccount = nil } }
+        }
     }
 
-    private func pasteFromClipboard() {
+    private func pasteFromClipboard(into text: Binding<String>, account: Int) {
         guard let str = NSPasteboard.general.string(forType: .string), !str.isEmpty else { return }
-        apiKey = str
-        withAnimation { pastedAlert = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { pastedAlert = false } }
+        text.wrappedValue = str
+        withAnimation { pastedAccount = account }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if pastedAccount == account { withAnimation { pastedAccount = nil } }
+        }
     }
 
     private func loadSettings() {
-        if let saved = SettingsManager.shared.loadAPIKey() { apiKey = saved }
+        let savedKeys = SettingsManager.shared.loadAPIKeys()
+        primaryAPIKey = savedKeys.indices.contains(0) ? savedKeys[0] : ""
+        secondaryAPIKey = savedKeys.indices.contains(1) ? savedKeys[1] : ""
+        let accountNames = SettingsManager.accountNames
+        primaryAccountName = accountNames[0]
+        secondaryAccountName = accountNames[1]
+        let accountColors = SettingsManager.accountNameColors
+        primaryAccountColor = color(from: accountColors[0])
+        secondaryAccountColor = color(from: accountColors[1])
+        secondaryAccountFirst = SettingsManager.secondaryAccountFirst
         refreshInterval = SettingsManager.refreshInterval
         if refreshInterval <= 0 { refreshInterval = 300 }
         apiBaseURL = SettingsManager.apiBaseURL
@@ -318,7 +417,19 @@ struct SettingsView: View {
     }
 
     @MainActor private func saveSettings() {
-        if !apiKey.isEmpty { _ = SettingsManager.shared.saveAPIKey(apiKey) }
+        SettingsManager.accountNames = [primaryAccountName, secondaryAccountName]
+        let normalizedNames = SettingsManager.accountNames
+        primaryAccountName = normalizedNames[0]
+        secondaryAccountName = normalizedNames[1]
+        SettingsManager.accountNameColors = [
+            storedColor(from: primaryAccountColor),
+            storedColor(from: secondaryAccountColor)
+        ]
+        let normalizedColors = SettingsManager.accountNameColors
+        primaryAccountColor = color(from: normalizedColors[0])
+        secondaryAccountColor = color(from: normalizedColors[1])
+        SettingsManager.secondaryAccountFirst = secondaryAccountFirst
+        _ = SettingsManager.shared.saveAPIKeys([primaryAPIKey, secondaryAPIKey])
         SettingsManager.refreshInterval = refreshInterval
         SettingsManager.apiBaseURL = apiBaseURL
         if let budget = Double(totalBudget), budget > 0 { SettingsManager.totalBudget = budget }
@@ -326,5 +437,25 @@ struct SettingsView: View {
         BalanceService.shared.restartAutoRefresh()
         withAnimation { saveSuccess = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation { saveSuccess = false } }
+    }
+
+    private func color(from stored: AccountNameColor) -> Color {
+        Color(
+            .sRGB,
+            red: stored.red,
+            green: stored.green,
+            blue: stored.blue,
+            opacity: stored.alpha
+        )
+    }
+
+    private func storedColor(from color: Color) -> AccountNameColor {
+        let converted = NSColor(color).usingColorSpace(.sRGB) ?? NSColor.systemBlue
+        return AccountNameColor(
+            red: Double(converted.redComponent),
+            green: Double(converted.greenComponent),
+            blue: Double(converted.blueComponent),
+            alpha: Double(converted.alphaComponent)
+        )
     }
 }

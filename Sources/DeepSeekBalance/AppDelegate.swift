@@ -47,9 +47,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         BalanceService.shared.startAutoRefresh()
 
-        BalanceService.shared.$balanceModel
+        BalanceService.shared.$accountBalances
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] model in self?.updateStatusBarText(model: model) }
+            .sink { [weak self] accounts in self?.updateStatusBarText(accounts: accounts) }
             .store(in: &cancellables)
 
         if !SettingsManager.shared.hasAPIKey {
@@ -85,10 +85,66 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.toolTip = "DeepSeek 余额监控"
     }
 
-    private func updateStatusBarText(model: BalanceDisplayModel?) {
+    private func updateStatusBarText(accounts: [AccountBalanceState]) {
         guard let button = statusItem?.button else { return }
-        button.title = model != nil ? " \(model!.balanceText)" : ""
+        let orderedAccounts = SettingsManager.secondaryAccountFirst && accounts.count == 2
+            ? [accounts[1], accounts[0]]
+            : accounts
+
+        if orderedAccounts.isEmpty {
+            button.attributedTitle = NSAttributedString(string: "")
+        } else {
+            let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            let title = NSMutableAttributedString(
+                string: " ",
+                attributes: [.font: font, .foregroundColor: NSColor.labelColor]
+            )
+
+            for (index, account) in orderedAccounts.enumerated() {
+                if index > 0 {
+                    title.append(NSAttributedString(
+                        string: " | ",
+                        attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+                    ))
+                }
+
+                title.append(NSAttributedString(
+                    string: "\(account.label) ",
+                    attributes: [
+                        .font: font,
+                        .foregroundColor: menuBarColor(for: account.nameColor)
+                    ]
+                ))
+                title.append(NSAttributedString(
+                    string: account.model?.balanceText ?? "--",
+                    attributes: [.font: font, .foregroundColor: NSColor.labelColor]
+                ))
+            }
+            button.attributedTitle = title
+        }
+
+        if orderedAccounts.isEmpty {
+            button.toolTip = "DeepSeek 余额监控"
+        } else {
+            button.toolTip = orderedAccounts.map { account in
+                if let error = account.errorMessage {
+                    return "\(account.label): \(error)"
+                }
+                return "\(account.label): \(account.model?.balanceText ?? "等待刷新")"
+            }.joined(separator: "\n")
+        }
+
+        popover?.contentSize = NSSize(width: 250, height: orderedAccounts.count > 1 ? 290 : 220)
         statusItem?.length = NSStatusItem.variableLength
+    }
+
+    private func menuBarColor(for color: AccountNameColor) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat(color.red),
+            green: CGFloat(color.green),
+            blue: CGFloat(color.blue),
+            alpha: CGFloat(color.alpha)
+        )
     }
 
     private func setupPopover() {

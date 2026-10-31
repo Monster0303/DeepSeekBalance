@@ -35,7 +35,7 @@ struct FloatingPanelView: View {
                 HStack(spacing: 4) {
                     // 状态指示灯
                     Circle()
-                        .fill(balanceService.balanceModel != nil ? Color.green : .secondary)
+                        .fill(balanceService.accountBalances.contains { $0.model != nil } ? Color.green : .secondary)
                         .frame(width: 6, height: 6)
 
                     Text("DeepSeek")
@@ -85,7 +85,9 @@ struct FloatingPanelView: View {
                 .padding(.top, 14)
 
                 // ── 余额主区 ──
-                if let model = balanceService.balanceModel {
+                if balanceService.accountBalances.count > 1 {
+                    multipleAccountContent
+                } else if let model = balanceService.accountBalances.first?.model {
                     VStack(spacing: 6) {
                         // 余额数字
                         Text(model.balanceText)
@@ -171,6 +173,17 @@ struct FloatingPanelView: View {
                     }
                     .padding(.horizontal, 18)
                     .padding(.vertical, 12)
+                } else if let error = balanceService.accountBalances.first?.errorMessage {
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
                 } else if balanceService.isLoading {
                     Spacer()
                     ProgressView().scaleEffect(0.8)
@@ -214,7 +227,48 @@ struct FloatingPanelView: View {
         .onAppear(perform: startCountdown)
         .onDisappear(perform: stopCountdown)
         .onReceive(balanceService.$lastUpdated) { _ in resetCountdown() }
-        .onReceive(balanceService.$balanceModel) { _ in resetCountdown() }
+        .onReceive(balanceService.$accountBalances) { _ in resetCountdown() }
+    }
+
+    private var multipleAccountContent: some View {
+        VStack(spacing: 5) {
+            ForEach(balanceService.orderedAccountBalances) { account in
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(account.model == nil
+                              ? (account.errorMessage == nil ? Color.secondary : Color.orange)
+                              : Color.green)
+                        .frame(width: 5, height: 5)
+
+                    Text(account.label)
+                        .font(.system(size: 9 * scale, weight: .medium))
+                        .foregroundColor(accountNameColor(account.nameColor))
+
+                    if account.isLoading {
+                        ProgressView()
+                            .scaleEffect(0.3)
+                            .frame(width: 8, height: 8)
+                    }
+
+                    Spacer(minLength: 6)
+
+                    Text(account.model?.balanceText ?? "--")
+                        .font(.system(size: CGFloat(SettingsManager.floatTextSize) * 0.78, weight: .semibold, design: .rounded))
+                        .foregroundColor(account.errorMessage == nil ? .primary : .orange)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.55)
+                }
+
+                if let error = account.errorMessage, account.model == nil {
+                    Text(error)
+                        .font(.system(size: 8 * scale))
+                        .foregroundColor(.orange)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
     }
 
     private var intervalLabel: String {
@@ -252,5 +306,15 @@ struct FloatingPanelView: View {
 
     private func short(_ n: Double) -> String {
         n >= 10000 ? String(format: "%.1f万", n / 10000) : n >= 1 ? String(format: "%.2f", n) : String(format: "%.4f", n)
+    }
+
+    private func accountNameColor(_ color: AccountNameColor) -> Color {
+        Color(
+            .sRGB,
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
+            opacity: color.alpha
+        )
     }
 }
